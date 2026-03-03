@@ -171,9 +171,9 @@ python flux.py https://example.com -o report.html
 python flux.py https://example.com --vuln-test -o report.html
 ```
 
-### 全面扫描 (深度)
+### 全面扫描 (深度)除delete测试除外，如需要单独加参数--test-delete
 ```bash
-python flux.py https://example.com --vuln-test --fuzz --fuzz-paths --verify-keys --test-delete -d 5 -o report.html
+python flux.py https://example.com --full --dnslog xxx.dnslog.cn -o report.html
 ```
 
 ### 使用代理扫描
