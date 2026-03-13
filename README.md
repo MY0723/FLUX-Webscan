@@ -56,7 +56,7 @@ FLUX v3.1.0 是一款专业的Web安全扫描工具，在 v3.0.5 基础上新增
   - **存储桶接管**: 检测可接管的废弃存储桶
   - **ACL/Policy泄露**: 测试访问控制列表和策略配置泄露
   - **未授权操作**: 测试未授权上传、删除文件
-![alt text](image.png)
+<img width="2562" height="1323" alt="image" src="https://github.com/MY0723/FLUX-Webscan/blob/main/Assets/2.png" />
 **差分测试机制:**
 - 发送正常请求获取基准响应（状态码、长度、内容hash）
 - 发送Payload后对比差异
