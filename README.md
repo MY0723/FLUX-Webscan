@@ -1,18 +1,25 @@
-FLUX  是一款专业的Web安全扫描工具，JS敏感信息收集、API端点提取、API文档解析、页面爬取、子域名发现、漏洞测试、WAF检测与绕过、JS代码分析等功能。觉得好用点个星星谢谢
+FLUX 是一款专业的Web安全扫描工具，支持JS敏感信息收集、API端点提取、API文档解析、页面爬取、子域名发现、漏洞测试、WAF检测与绕过、JS代码分析等功能。觉得好用点个星星谢谢
 
-# FLUX v3.0.5 使用手册
+# FLUX v3.1.0 使用手册
 
 ## 简介
 
-FLUX v3.0.5 是一款专业的Web安全扫描工具，新增完整规则库、美观HTML报告、可视化统计等功能。
+FLUX v3.1.0 是一款专业的Web安全扫描工具，在 v3.0.5 基础上新增扫描进度显示、过程中自动保存结果、优化参数体系等功能。
 
 **核心特性:**
 - 🔍 25,000+ 指纹库
 - 🛡️ 40+种WAF检测与绕过（含国产厂商）
-- 🎯 一键全功能扫描
-- 📊 美观HTML报告
+- 🎯 一键全功能扫描 + 单功能独立扫描
+- 📊 美观HTML报告 + 扫描进度实时显示
+- 💾 过程中自动保存结果（防止意外丢失）
 - 🤖 智能速率限制与流量伪装
 - 🔐 CSRF Token自动提取与Cookie持久化
+
+**更新日志 (v3.1.0):**
+1. ✅ 扫描过程中自动保存结果（`--save-interval` 参数）
+2. ✅ 实时扫描进度显示（目标/页面/JS/发现/漏洞/耗时）
+3. ✅ 优化参数体系（`-t` 单目标，`-tf` 目标文件，`-tc` 线程数）
+4. ✅ 支持单功能扫描（`--fingerprint` 仅指纹识别等）
 
 **作者:** ROOT4044
 
@@ -115,60 +122,120 @@ python flux.py https://example.com --full --dnslog xxx.dnslog.cn -o report.html
 
 ## 命令行参数
 
+### 基础参数
+
 | 参数 | 说明 | 默认值 |
 |-----|------|-------|
-| `target` | 目标URL、URL列表(逗号分隔)、或URL文件路径 | 必填 |
-| `-l`, `--list` | 从文件加载目标列表(每行一个URL) | - |
+| `-t`, `--target` | 单个目标URL | - |
+| `-tf`, `--target-file` | 从文件加载目标列表(每行一个URL) | - |
 | `-d`, `--depth` | 爬取深度 | 3 |
-| `-t`, `--threads` | 并发线程数 | 20 |
+| `-tc`, `--threads` | 并发线程数 | 20 |
 | `--timeout` | 超时时间(秒) | 15 |
 | `--proxy` | 代理服务器 | - |
 | `-o`, `--output` | 输出文件(.html/.json) | - |
-| `--full` | **一键全功能扫描** (启用所有检测) | 关闭 |
-| `--api-parse` | 启用API文档解析 | 关闭 |
-| `--verify-keys` | 验证密钥有效性 | 关闭 |
-| `--fuzz` | 启用参数fuzzing | 关闭 |
-| `--fuzz-paths` | 启用敏感路径fuzzing | 关闭 |
-| `--vuln-test` | 启用漏洞主动测试 | 关闭 |
-| `--test-delete` | 测试DELETE类危险接口 | 关闭 |
-| `--dnslog` | 指定DNSLog域名用于盲SSRF测试 | - |
 | `-v`, `--verbose` | 详细输出 | 关闭 |
 | `-q`, `--quiet` | 安静模式 | 关闭 |
 
+### 扫描模式参数（互斥）
+
+| 参数 | 说明 |
+|-----|------|
+| `--full` | **一键全功能扫描** (启用所有检测) |
+| `--fingerprint` | **仅进行指纹识别** |
+| `--api-only` | **仅解析API文档** |
+
+### 功能开关参数
+
+| 参数 | 说明 |
+|-----|------|
+| `--api-parse` | 启用API文档解析 |
+| `--verify-keys` | 验证密钥有效性 |
+| `--fuzz` | 启用参数fuzzing |
+| `--fuzz-paths` | 启用敏感路径fuzzing |
+| `--vuln-test` | 启用漏洞主动测试 |
+| `--test-delete` | 测试DELETE类危险接口 |
+| `--dnslog` | 指定DNSLog域名用于盲SSRF测试 |
+| `--save-interval` | 自动保存间隔(秒)，0为禁用 | 30 |
+| `--cookie-jar` | Cookie持久化文件路径 | - |
+
+> ⚠️ **注意**: `--full`、 `--fingerprint`、 `--api-only` 为互斥参数，只能同时使用其中一个
+
 ## 使用示例
+
+### 🔥 快速开始
+
+```bash
+# 一键全功能扫描（推荐）
+python flux.py -t https://example.com --full -o report.html
+
+# 全功能扫描 + DNSLog盲测（推荐用于SSRF检测）
+python flux.py -t https://example.com --full --dnslog xxx.dnslog.cn -o report.html
+
+# 完整扫描（深度3，20线程，30秒自动保存）
+python flux.py -t https://example.com --full --dnslog xxx.dnslog.cn -d 3 -tc 20 -o report.html --save-interval 30
+```
 
 ### 单目标扫描
 ```bash
-python flux.py https://example.com
+python flux.py -t https://example.com
 ```
 
 ### 批量扫描(逗号分隔)
 ```bash
-python flux.py "https://example1.com,https://example2.com"
+python flux.py -t "https://example1.com,https://example2.com"
 ```
 
 ### 批量扫描(文件)
 ```bash
-python flux.py urls.txt
+python flux.py -tf urls.txt
 ```
 
 ### 深度扫描
 ```bash
-python flux.py https://example.com -d 5
+python flux.py -t https://example.com -d 5
+```
+
+### 单功能扫描模式
+
+```bash
+# 仅指纹识别
+python flux.py -t https://example.com --fingerprint
+
+# 仅API文档解析
+python flux.py -t https://example.com --api-only
+
+# 仅漏洞测试
+python flux.py -t https://example.com --vuln-test --dnslog xxx.dnslog.cn
+
+# 仅敏感路径扫描
+python flux.py -t https://example.com --fuzz-paths
+
+# 仅密钥验证
+python flux.py -t https://example.com --verify-keys
+```
+
+### 过程中自动保存结果
+
+```bash
+# 每30秒自动保存（默认）
+python flux.py -t https://example.com --full --save-interval 30
+
+# 禁用自动保存
+python flux.py -t https://example.com --full --save-interval 0
 ```
 
 ### 漏洞主动测试 (SQLi/XSS/LFI/RCE/SSTI/云安全)
 ```bash
-python flux.py https://example.com --vuln-test
+python flux.py -t https://example.com --vuln-test
 ```
 
 ### 云安全测试
 ```bash
 # 基础云安全测试（包含在--vuln-test中）
-python flux.py https://example.com --vuln-test -o report.html
+python flux.py -t https://example.com --vuln-test -o report.html
 
 # 一键全功能扫描（包含云安全测试）
-python flux.py https://example.com --full -o report.html
+python flux.py -t https://example.com --full -o report.html
 ```
 
 **云安全测试内容:**
@@ -197,40 +264,40 @@ python flux.py https://example.com --full -o report.html
 
 ### 敏感路径fuzzing
 ```bash
-python flux.py https://example.com --fuzz-paths
+python flux.py -t https://example.com --fuzz-paths
 ```
 
 ### 生成HTML报告
 ```bash
-python flux.py https://example.com -o report.html
+python flux.py -t https://example.com -o report.html
 ```
 
 ### 标准扫描 (推荐)
 ```bash
-python flux.py https://example.com --vuln-test -o report.html
+python flux.py -t https://example.com --vuln-test -o report.html
 ```
 
 ### 全面扫描 (深度)除delete测试除外，如需要单独加参数--test-delete
 ```bash
-python flux.py https://example.com --full --dnslog xxx.dnslog.cn -o report.html
+python flux.py -t https://example.com --full --dnslog xxx.dnslog.cn -o report.html
 ```
 
 ### 使用代理扫描
 ```bash
-python flux.py https://example.com --vuln-test --proxy http://127.0.0.1:8080 -o report.html
+python flux.py -t https://example.com --vuln-test --proxy http://127.0.0.1:8080 -o report.html
 ```
 
 ### SSRF测试（带DNSLog）
 ```bash
 # 方式1: 命令行指定DNSLog域名（推荐，非交互式）
-python flux.py https://example.com --vuln-test --dnslog xxx.dnslog.cn -o report.html
+python flux.py -t https://example.com --vuln-test --dnslog xxx.dnslog.cn -o report.html
 
 # 方式2: 交互式输入（扫描过程中提示输入）
-python flux.py https://example.com --vuln-test
+python flux.py -t https://example.com --vuln-test
 # 提示: 请输入DNSLog子域名 (例如: xxx.dnslog.cn):
 
 # 方式3: 一键全功能扫描 + DNSLog
-python flux.py https://example.com --full --dnslog xxx.dnslog.cn -o report.html
+python flux.py -t https://example.com --full --dnslog xxx.dnslog.cn -o report.html
 ```
 
 **获取DNSLog域名:**
@@ -238,6 +305,37 @@ python flux.py https://example.com --full --dnslog xxx.dnslog.cn -o report.html
 2. 点击"Get SubDomain"获取子域名（如：`abc123.dnslog.cn`）
 3. 使用 `--dnslog abc123.dnslog.cn` 参数运行扫描
 4. 扫描完成后回到 https://dnslog.cn 查看DNS解析记录
+
+---
+
+## 扫描进度显示
+
+扫描过程中会实时显示进度信息：
+
+```
+[2026-03-13 14:23:01,822] [INFO] [进度] 目标:1/5 | 页面:15 | JS:27 | 发现:394 | 漏洞:23 | 耗时:800s
+```
+
+**进度字段说明：**
+- `目标:1/5` - 当前扫描第1个目标，共5个目标
+- `页面:15` - 已爬取15个页面
+- `JS:27` - 已分析27个JS文件
+- `发现:394` - 发现394个API端点/敏感信息
+- `漏洞:23` - 发现23个漏洞
+- `耗时:800s` - 已运行800秒
+
+---
+
+## 临时文件说明
+
+扫描过程中会自动保存中间结果到 `flux_interim_latest.json`，防止程序异常退出导致结果丢失。
+
+**特点：**
+- 使用固定文件名，不会生成大量文件
+- 扫描完成后自动清理
+- 可通过 `--save-interval 0` 禁用
+
+---
 
 ## 架构说明
 
