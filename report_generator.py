@@ -12,6 +12,7 @@ try:
     from vuln_test import get_api_type
 except ImportError:
     def get_api_type(url: str) -> str:
+        
         url_lower = url.lower()
         api_map = {
             "login": "登录接口", "register": "注册接口", "auth": "认证接口",
