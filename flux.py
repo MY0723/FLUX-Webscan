@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 =============================================================================
-   FLUX v3.0.5: 专业的Web安全扫描工具
+   FLUX v3.1.0: 专业的Web安全扫描工具
 =============================================================================
     核心特性:
     - 25,000+ 指纹库
@@ -16,8 +16,8 @@
     - SQL注入/XSS误报过滤
 
     作者: ROOT4044
-    版本: 3.0.5
-    日期: 2026-03-06
+    版本: 3.1.0
+    日期: 2026-03-13
     许可证: MIT License
 =============================================================================
 """
@@ -131,7 +131,8 @@ class FLUX:
                  threads: int = 20, verify_keys: bool = False,
                  fuzz_params: bool = False, vuln_test: bool = False,
                  fuzz_paths: bool = False, test_delete: bool = False,
-                 api_parse: bool = False, verify_endpoints: bool = False):
+                 api_parse: bool = False, verify_endpoints: bool = False,
+                 save_interval: int = 30):
         
         if os.path.isfile(target):
             with open(target, 'r') as f:
@@ -150,6 +151,20 @@ class FLUX:
         self.test_delete = test_delete
         self.api_parse = api_parse
         self.verify_endpoints = verify_endpoints
+        self.save_interval = save_interval
+        
+        self.last_save_time = time.time()
+        self.scan_start_time = time.time()
+        
+        self.total_targets = len(self.targets)
+        self.current_target_index = 0
+        
+        self.progress_stats = {
+            'pages_scanned': 0,
+            'js_analyzed': 0,
+            'total_pages_estimate': 0,
+            'total_js_estimate': 0,
+        }
         
         # 线程锁保护共享资源
         self._lock = threading.Lock()
@@ -184,10 +199,16 @@ class FLUX:
         
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
             'Referer': self.target_url,
         }
         
@@ -2542,7 +2563,9 @@ class FLUX:
             'content': None,
             'status_code': 0,
             'content_length': 0,
-            'title': '未知'
+            'title': '未知',
+            'headers': {},
+            'cookies': {}
         }
         
         for attempt in range(3):
@@ -2557,13 +2580,16 @@ class FLUX:
                     
                 resp = requests.get(url, **kwargs)
                 result['status_code'] = resp.status_code
+                result['headers'] = dict(resp.headers)
+                result['cookies'] = dict(resp.cookies)
                 
-                if resp.status_code == 200:
-                    content = resp.text
-                    result['content'] = content
-                    result['content_length'] = len(content)
-                    
-                    # 提取页面标题
+                # 获取内容（无论状态码）
+                content = resp.text
+                result['content'] = content if resp.status_code == 200 else None
+                result['content_length'] = len(content)
+                
+                # 提取页面标题（无论状态码，只要有内容）
+                if content:
                     try:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(content, 'html.parser')
@@ -2572,8 +2598,13 @@ class FLUX:
                             result['title'] = title_tag.string.strip()[:50]  # 限制长度
                     except:
                         pass
-                        
+                
+                if resp.status_code == 200:
                     return result
+                elif resp.status_code in [301, 302]:
+                    location = resp.headers.get('Location')
+                    if location:
+                        return self._fetch_page_info(location)
                     
                 elif resp.status_code in [301, 302]:
                     location = resp.headers.get('Location')
@@ -3708,17 +3739,82 @@ class FLUX:
     def crawl_and_scan(self):
         logger.info(f"{Colors.CYAN}[*] 开始批量扫描，共 {len(self.targets)} 个目标{Colors.END}")
         
-        for target in self.targets:
+        for idx, target in enumerate(self.targets):
+            self.current_target_index = idx + 1
             target = target.rstrip('/')
-            logger.info(f"{Colors.CYAN}[*] 扫描目标: {target}{Colors.END}")
+            logger.info(f"{Colors.CYAN}[*] [{self.current_target_index}/{self.total_targets}] 扫描目标: {target}{Colors.END}")
             
             self._scan_single_target(target)
+            
+            self._save_interim_results()
         
         logger.info(f"{Colors.GREEN}[*] 全部扫描完成!{Colors.END}")
         logger.info(f"{Colors.YELLOW}    结果总数: {len(self.results)}{Colors.END}")
         logger.info(f"{Colors.YELLOW}    端点总数: {len(self.endpoints)}{Colors.END}")
         logger.info(f"{Colors.YELLOW}    子域名: {len(self.subdomains)}{Colors.END}")
         logger.info(f"{Colors.YELLOW}    漏洞发现: {len(self.vuln_findings)}{Colors.END}")
+    
+    def _update_progress(self, scan_type: str = "page"):
+        elapsed = time.time() - self.scan_start_time
+        pages = len(self.crawled_pages)
+        js_files = len(self.js_files)
+        results = len(self.results)
+        vuln_findings = len(self.vuln_findings)
+        
+        if scan_type == "page":
+            self.progress_stats['pages_scanned'] = pages
+        elif scan_type == "js":
+            self.progress_stats['js_analyzed'] = js_files
+        
+        progress_msg = f"{Colors.CYAN}[进度] 目标:{self.current_target_index}/{self.total_targets} | 页面:{pages} | JS:{js_files} | 发现:{results} | 漏洞:{vuln_findings} | 耗时:{int(elapsed)}s{Colors.END}"
+        logger.info(progress_msg)
+        
+        if self.save_interval > 0 and time.time() - self.last_save_time >= self.save_interval:
+            self._save_interim_results()
+    
+    def _save_interim_results(self):
+        if self.save_interval <= 0:
+            return
+        
+        try:
+            import json
+            import glob
+            
+            # 使用固定文件名，覆盖之前的临时文件
+            interim_file = "flux_interim_latest.json"
+            
+            interim_data = {
+                "scan_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "targets": self.targets,
+                "current_target": self.current_target_index,
+                "results": [asdict(r) for r in self.results],
+                "endpoints": [asdict(e) for e in self.endpoints],
+                "subdomains": list(self.subdomains),
+                "vuln_findings": [asdict(v) for v in self.vuln_findings],
+                "pages_scanned": len(self.crawled_pages),
+                "js_files_found": len(self.js_files),
+                "fingerprint_results": [
+                    {"name": fp.name, "category": fp.category, "confidence": fp.confidence} 
+                    for fp in self.fingerprint_results
+                ] if hasattr(self, 'fingerprint_results') else []
+            }
+            
+            with open(interim_file, 'w', encoding='utf-8') as f:
+                json.dump(interim_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"{Colors.GREEN}[*] 中间结果已保存: {interim_file}{Colors.END}")
+            self.last_save_time = time.time()
+            
+            # 清理旧的临时文件（只保留最新的）
+            for old_file in glob.glob("flux_interim*.json"):
+                if old_file != interim_file:  # 不删除当前文件
+                    try:
+                        os.remove(old_file)
+                    except:
+                        pass
+                    
+        except Exception as e:
+            logger.debug(f"保存中间结果失败: {e}")
     
     def _scan_single_target(self, target_url: str):
         from vuln_test import VULN_TYPE_MAP, TYPE_NAME_MAP
@@ -3738,6 +3834,7 @@ class FLUX:
             self.crawled_pages.add(url)
             
             page_progress = len(self.crawled_pages)
+            self._update_progress("page")
             
             # 获取页面详细信息
             page_info = self._fetch_page_info(url)
@@ -3753,29 +3850,25 @@ class FLUX:
             
             logger.info(f"{Colors.BLUE}[*] 长度:[{length_str}] -> 响应:[{status_str}] -> 标题:[{title_str}] -> `{url}`{Colors.END}")
             
-            if html_content:
+            # 只在首页进行指纹识别和API文档解析（不依赖html_content）
+            if first_page:
+                first_page = False
+                logger.info(f"{Colors.CYAN}[*] 开始首页分析 (api_parse={self.api_parse}){Colors.END}")
                 
-                # 只在首页进行指纹识别和API文档解析
-                if first_page:
-                    first_page = False
-                    logger.info(f"{Colors.CYAN}[*] 开始首页分析 (api_parse={self.api_parse}){Colors.END}")
-                    
-                    # 获取响应头和cookies用于指纹识别
-                    try:
-                        resp = self.session.get(url, timeout=self.timeout)
-                        headers = dict(resp.headers)
-                        cookies = dict(resp.cookies)
-                        
-                        # 指纹识别
-                        self.fingerprint_target(url, headers, html_content, cookies)
-                        
-                        # API文档解析
-                        logger.info(f"{Colors.CYAN}[*] 调用 parse_api_documentation{Colors.END}")
-                        self.parse_api_documentation(target_url)
-                    except Exception as e:
-                        logger.info(f"{Colors.RED}[!] 指纹识别/API解析错误: {e}{Colors.END}")
-                        import traceback
-                        logger.debug(traceback.format_exc())
+                # 使用page_info中已有的headers和cookies
+                headers = page_info.get('headers', {})
+                cookies = page_info.get('cookies', {})
+                
+                # 指纹识别（使用html_content或空字符串）
+                fingerprint_content = html_content if html_content else ""
+                self.fingerprint_target(url, headers, fingerprint_content, cookies)
+                
+                # API文档解析
+                if html_content:
+                    logger.info(f"{Colors.CYAN}[*] 调用 parse_api_documentation{Colors.END}")
+                    self.parse_api_documentation(target_url)
+            
+            if html_content:
                 
                 jsonp_findings = self.detect_jsonp(html_content, url)
                 if jsonp_findings:
@@ -4536,36 +4629,41 @@ def parse_args():
                         常用示例
 ===================================================================
 
-  # 单目标快速扫描
-  python flux.py https://example.com
-
-  # 批量扫描(逗号分隔)
-  python flux.py "https://example1.com,https://example2.com"
+  # 单目标快速扫描 (新参数方式)
+  python flux.py -t https://example.com
 
   # 批量扫描(文件)
-  python flux.py urls.txt
+  python flux.py -tf urls.txt
 
   # 深度扫描 (爬取深度5)
-  python flux.py https://example.com -d 5
+  python flux.py -t https://example.com -d 5
 
   # URL包含特殊字符(&或=) - Windows CMD必须用双引号
-  python flux.py "https://example.com/path?a=1&b=2" --full -o report.html
+  python flux.py -t "https://example.com/path?a=1&b=2" --full -o report.html
 
   # URL包含特殊字符 - 其他系统可用单引号
-  python flux.py 'https://example.com/path?a=1&b=2' --full -o report.html
-
-  # 或使用文件方式加载URL
-  python flux.py urls.txt
-  python flux.py -l urls.txt
+  python flux.py -t 'https://example.com/path?a=1&b=2' --full -o report.html
 
   # 漏洞主动测试 (带差分检测, 误报率降低80%+)
-  python flux.py https://example.com --vuln-test
+  python flux.py -t https://example.com --vuln-test
+
+  # 仅进行指纹识别
+  python flux.py -t https://example.com --fingerprint
+
+  # 仅进行API文档解析
+  python flux.py -t https://example.com --api-only
+
+  # 仅检测敏感信息/密钥
+  python flux.py -t https://example.com --keys-only
+
+  # 仅进行敏感路径扫描
+  python flux.py -t https://example.com --paths-only
 
   # 敏感路径fuzzing
-  python flux.py https://example.com --fuzz-paths
+  python flux.py -t https://example.com --fuzz-paths
 
   # 生成HTML报告
-  python flux.py https://example.com -o report.html
+  python flux.py -t https://example.com -o report.html
 
   # 标准扫描 (推荐, 平衡速度与深度)
   python flux.py https://example.com --vuln-test -o report.html
@@ -4599,14 +4697,17 @@ def parse_args():
 ===================================================================
         """
     )
-    parser.add_argument('target', help='目标URL、URL列表(逗号分隔)、或URL文件路径')
-    parser.add_argument('-l', '--list', type=str, help='从文件加载目标列表 (每行一个URL)')
-    parser.add_argument('-d', '--depth', type=int, default=3, help='爬取深度 (默认: 3)')
-    parser.add_argument('-t', '--threads', type=int, default=20, help='并发线程数 (默认: 20)')
+    parser.add_argument('-t', '--target', type=str, help='单个目标URL (使用-tf指定目标文件)')
+    parser.add_argument('-tf', '--target-file', type=str, help='从文件加载目标列表 (每行一个URL)')
+    parser.add_argument('-tc', '--threads', type=int, default=20, help='并发线程数 (默认: 20)')
     parser.add_argument('--timeout', type=int, default=15, help='超时时间 (默认: 15秒)')
     parser.add_argument('--proxy', type=str, help='代理服务器')
     parser.add_argument('-o', '--output', type=str, help='输出文件 (支持.html/.json)')
+    
     parser.add_argument('--full', action='store_true', help='一键全功能扫描 (启用:指纹识别/API解析/密钥验证/路径Fuzz/参数Fuzz/漏洞测试/WAF绕过/DOM XSS/智能限速/流量伪装)')
+    parser.add_argument('--fingerprint', action='store_true', help='仅进行指纹识别')
+    parser.add_argument('-d', '--depth', type=int, default=3, help='爬取深度 (默认: 3)')
+    parser.add_argument('--save-interval', type=int, default=30, help='结果保存间隔(秒), 0为仅结束时保存 (默认: 30)')
     parser.add_argument('--verify-keys', action='store_true', help='验证密钥有效性')
     parser.add_argument('--fuzz', action='store_true', help='启用参数fuzzing')
     parser.add_argument('--fuzz-paths', action='store_true', help='启用敏感路径fuzzing')
@@ -4734,18 +4835,32 @@ def main():
             except Exception as e:
                 logger.debug(f"DNSLog输入错误: {e}")
     
-    # 处理目标参数 (-l 参数优先)
-    target_input = args.target
-    if args.list:
-        # 从文件加载目标列表
-        if os.path.isfile(args.list):
-            with open(args.list, 'r', encoding='utf-8') as f:
+    # 处理目标参数 (-tf 参数优先)
+    target_input = ""
+    if args.target_file:
+        if os.path.isfile(args.target_file):
+            with open(args.target_file, 'r', encoding='utf-8') as f:
                 targets = [line.strip() for line in f if line.strip()]
             target_input = ','.join(targets)
-            logger.info(f"[*] 从文件 {args.list} 加载了 {len(targets)} 个目标")
+            logger.info(f"[*] 从文件 {args.target_file} 加载了 {len(targets)} 个目标")
         else:
-            logger.error(f"[!] 目标列表文件不存在: {args.list}")
+            logger.error(f"[!] 目标列表文件不存在: {args.target_file}")
             return
+    elif args.target:
+        target_input = args.target
+    else:
+        logger.error("[!] 请使用 -t 指定目标URL 或 -tf 指定目标文件")
+        return
+    
+    # 处理单功能扫描模式
+    if args.fingerprint:
+        logger.info("[*] 模式: 仅进行指纹识别")
+        args.api_parse = False
+        args.verify_keys = False
+        args.fuzz = False
+        args.fuzz_paths = False
+        args.vuln_test = False
+        args.test_delete = False
     
     scanner = FLUX(
         target=target_input,
@@ -4759,7 +4874,8 @@ def main():
         fuzz_paths=args.fuzz_paths,
         test_delete=args.test_delete,
         api_parse=args.api_parse,
-        verify_endpoints=args.verify_endpoints
+        verify_endpoints=args.verify_endpoints,
+        save_interval=args.save_interval
     )
     
     try:
