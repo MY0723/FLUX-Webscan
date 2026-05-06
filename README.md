@@ -1,4 +1,5 @@
-![Uploading 8113fb214fd3dba12c4a7532d46c951a.jpg…]()
+<img width="1280" height="1054" alt="8113fb214fd3dba12c4a7532d46c951a" src="https://github.com/user-attachments/assets/b98185db-0f95-494b-bbe4-68b9c0482963" />
+
 
 FLUX v5.4.5是一款专业的Web安全扫描工具，支持CLI和Web界面双模式运行。新增WAF指纹识别与智能Bypass引擎、700+通用Bypass Payload池、并发扫描优化、二进制文件过滤、Web界面图形化操作等功能，支持静态/渲染/混合三种扫描策略，集成Playwright实现SPA/前端路由页面扫描。本次更新重点修复云密钥检测误报问题，大幅降低字节跳动等云服务密钥的假阳性。
 
